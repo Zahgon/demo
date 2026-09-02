@@ -1,24 +1,24 @@
-import {
-  FastifyPluginAsyncTypebox,
-  Type
-} from '@fastify/type-provider-typebox'
+import { Type } from 'typebox'
+import { AppInstance } from '../lib/instance.js'
+import { createRouter, route } from '../lib/route.js'
 
-const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
-  fastify.get(
-    '/',
-    {
-      schema: {
-        response: {
-          200: Type.Object({
-            message: Type.String()
-          })
-        }
+export default async function (app: AppInstance) {
+  const target = createRouter('', app.routeRegistry)
+
+  route(target, {
+    method: 'get',
+    url: '/',
+    schema: {
+      response: {
+        200: Type.Object({
+          message: Type.String()
+        })
       }
     },
-    async function () {
+    handler: async function () {
       return { message: 'Welcome to the official fastify demo!' }
     }
-  )
-}
+  })
 
-export default plugin
+  app.use(target.router)
+}

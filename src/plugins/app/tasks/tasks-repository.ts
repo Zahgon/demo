@@ -1,6 +1,4 @@
 import { ReturnType, Static } from 'typebox'
-import { FastifyInstance } from 'fastify'
-import fp from 'fastify-plugin'
 import {
   CreateTaskSchema,
   QueryTaskPaginationSchema,
@@ -8,32 +6,35 @@ import {
   UpdateTaskSchema
 } from '../../../schemas/tasks.js'
 import { Knex } from 'knex'
+import { AppInstance } from '../../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    tasksRepository: ReturnType<typeof createRepository>;
+declare global {
+  namespace Express {
+    export interface Application {
+      tasksRepository: ReturnType<typeof createRepository>;
+    }
   }
 }
 
 type CreateTask = Static<typeof CreateTaskSchema>
-type UpdateTask = Omit<Static<typeof UpdateTaskSchema>, 'assigned_user_id'> & {
+export type UpdateTask = Omit<Static<typeof UpdateTaskSchema>, 'assigned_user_id'> & {
   assigned_user_id?: number | null;
   filename?: string
 }
 
-type TaskQuery = Static<typeof QueryTaskPaginationSchema>
+export type TaskQuery = Static<typeof QueryTaskPaginationSchema>
 
-function createRepository (fastify: FastifyInstance) {
-  const knex = fastify.knex
+function createRepository (app: AppInstance) {
+  const knex = app.knex
 
   return {
     async paginate (q: TaskQuery) {
       const offset = (q.page - 1) * q.limit
 
-      const query = fastify
+      const query = app
         .knex<Task & { total: number }>('tasks')
         .select('*')
-        .select(fastify.knex.raw('count(*) OVER() as total'))
+        .select(app.knex.raw('count(*) OVER() as total'))
 
       if (q.author_id !== undefined) {
         query.where({ author_id: q.author_id })
@@ -63,7 +64,7 @@ function createRepository (fastify: FastifyInstance) {
     },
 
     async findByFilename (filename: string) {
-      return await fastify
+      return await app
         .knex<Task>('tasks')
         .select('filename')
         .where({ filename })
@@ -107,12 +108,6 @@ function createRepository (fastify: FastifyInstance) {
   }
 }
 
-export default fp(
-  function (fastify) {
-    fastify.decorate('tasksRepository', createRepository(fastify))
-  },
-  {
-    name: 'tasks-repository',
-    dependencies: ['knex']
-  }
-)
+export default function (app: AppInstance) {
+  app.tasksRepository = createRepository(app)
+}

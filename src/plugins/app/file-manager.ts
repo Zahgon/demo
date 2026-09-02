@@ -1,20 +1,21 @@
 import { ReturnType } from 'typebox'
-import { FastifyInstance } from 'fastify'
-import fp from 'fastify-plugin'
 import fs from 'fs'
 import { pipeline } from 'node:stream/promises'
 import * as crypto from 'node:crypto'
-import fastifyMultipart from '../external/multipart.js'
+import { MultipartFile } from '../external/multipart.js'
 import sanitize from 'sanitize-filename'
 import path from 'node:path'
+import { AppInstance } from '../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    fileManager: ReturnType<typeof createFileManager>
+declare global {
+  namespace Express {
+    export interface Application {
+      fileManager: ReturnType<typeof createFileManager>
+    }
   }
 }
 
-function createFileManager (fastify: FastifyInstance) {
+function createFileManager (app: AppInstance) {
   return {
     ensureDir (dir: string) {
       if (!fs.existsSync(dir)) {
@@ -22,7 +23,7 @@ function createFileManager (fastify: FastifyInstance) {
       }
     },
 
-    async upload (file: fastifyMultipart.MultipartFile, destPath: string) {
+    async upload (file: MultipartFile, destPath: string) {
       await pipeline(file.file, fs.createWriteStream(destPath))
     },
 
@@ -41,7 +42,7 @@ function createFileManager (fastify: FastifyInstance) {
         await fs.promises.unlink(filePath)
       } catch (err) {
         if (isErrnoException(err) && err.code === 'ENOENT') {
-          fastify.log.warn(`File path '${filePath}' not found`)
+          app.log.warn(`File path '${filePath}' not found`)
         } else {
           throw err
         }
@@ -61,8 +62,6 @@ function isErrnoException (error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
 }
 
-export default fp(async (fastify) => {
-  fastify.decorate('fileManager', createFileManager(fastify))
-}, {
-  name: 'file-manager'
-})
+export default async function (app: AppInstance) {
+  app.fileManager = createFileManager(app)
+}

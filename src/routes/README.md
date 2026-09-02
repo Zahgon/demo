@@ -1,7 +1,7 @@
 # Routes Folder
 
 Routes define the pathways within your application.
-Fastify's structure supports the modular monolith approach, where your
+Express's structure supports the modular monolith approach, where your
 application is organized into distinct, self-contained modules.
 This facilitates easier scaling and future transition to a microservice architecture.
 Each module can evolve independently, and in the future, you might want to deploy
@@ -9,22 +9,22 @@ some of these modules separately.
 
 In this folder you should define all the routes that define the endpoints
 of your web application.
-Each service is a [Fastify
-plugin](https://fastify.dev/docs/latest/Reference/Plugins/), it is
-encapsulated (it can have its own independent plugins) and it is
+Each service registers its routes on an [Express
+router](https://expressjs.com/en/4x/api.html#router), it is
+encapsulated (it can have its own independent middleware) and it is
 typically stored in a file; be careful to group your routes logically,
 e.g. all `/users` routes in a `users.js` file. We have added
-a `root.js` file for you with a '/' root added.
+a `home.js` file for you with a '/' root added.
 
-If a single file become too large, create a folder and add a `index.js` file there:
-this file must be a Fastify plugin, and it will be loaded automatically
-by the application. You can now add as many files as you want inside that folder.
+If a single file become too large, create a folder and add an `index.js` file there:
+this file must export a function that registers routes on the router it receives,
+and it will be mounted by the application. You can now add as many files as you want inside that folder.
 In this way you can create complex routes within a single monolith,
 and eventually extract them.
 
 If you need to share functionality between routes, place that
-functionality into the `plugins` folder, and share it via
-[decorators](https://fastify.dev/docs/latest/Reference/Decorators/).
+functionality into the `plugins` folder, and share it through the
+[application instance](https://expressjs.com/en/4x/api.html#app).
 
 If you're a bit confused about using `async/await` to write routes, you would
-better take a look at [Promise resolution](https://fastify.dev/docs/latest/Reference/Routes/#promise-resolution) for more details.
+better take a look at [Express error handling](https://expressjs.com/en/guide/error-handling.html) for more details.

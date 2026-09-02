@@ -1,15 +1,13 @@
-/**
- * This file is here only to show you how to proceed if you would
- * like to run your application as a standalone executable.
- *
- * You can launch it with the command `npm run standalone`
- */
+// This file is here only to show you how to proceed if you would
+// like to run your application as a standalone executable.
+//
+// You can launch it with the command `npm run standalone`
+import pino, { LoggerOptions } from 'pino'
 
-import Fastify from 'fastify'
-import fp from 'fastify-plugin'
-
-// Import library to exit fastify process, gracefully (if possible)
+// Import library to exit the process, gracefully (if possible)
 import closeWithGrace from 'close-with-grace'
+
+import { createInstance } from './lib/instance.js'
 
 // Import your application as a normal plugin.
 import serviceApp from './app.js'
@@ -18,7 +16,7 @@ import serviceApp from './app.js'
  * Do not use NODE_ENV to determine what logger (or any env related feature) to use
  * @see {@link https://www.youtube.com/watch?v=HMM7GJC5E2o}
  */
-function getLoggerOptions () {
+function getLoggerOptions (): LoggerOptions {
   // Only if the program is running in an interactive terminal
   if (process.stdout.isTTY) {
     return {
@@ -36,29 +34,12 @@ function getLoggerOptions () {
   return { level: process.env.LOG_LEVEL ?? 'silent' }
 }
 
-const app = Fastify({
-  logger: getLoggerOptions(),
-  // Apply recommended timeouts to prevent slow or idle clients from holding connections open
-  connectionTimeout: 120_000,
-  requestTimeout: 60_000,
-  keepAliveTimeout: 10_000,
-  http: {
-    headersTimeout: 15_000
-  },
-  ajv: {
-    customOptions: {
-      coerceTypes: 'array', // change type of data to match type keyword
-      removeAdditional: 'all' // Remove additional body properties
-    }
-  }
-})
+const app = createInstance(pino(getLoggerOptions()))
 
 async function init () {
   // Register your application as a normal plugin.
-  // fp must be used to override default error handler
-  app.register(fp(serviceApp))
+  await serviceApp(app)
 
-  // Delay is the number of milliseconds for the graceful close to finish
   closeWithGrace(
     { delay: process.env.FASTIFY_CLOSE_GRACE_DELAY ?? 500 },
     async ({ err }) => {
@@ -70,11 +51,17 @@ async function init () {
     }
   )
 
-  await app.ready()
-
   try {
     // Start listening.
-    await app.listen({ port: process.env.PORT ?? 3000 })
+    const server = app.listen(process.env.PORT ?? 3000)
+
+    // Apply recommended timeouts to prevent slow or idle clients from holding connections open
+    server.setTimeout(120_000)
+    server.requestTimeout = 60_000
+    server.keepAliveTimeout = 10_000
+    server.headersTimeout = 15_000
+
+    app.server = server
   } catch (err) {
     app.log.error(err)
     process.exit(1)

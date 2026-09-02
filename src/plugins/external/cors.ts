@@ -1,12 +1,20 @@
-import cors, { FastifyCorsOptions } from '@fastify/cors'
+import cors, { type CorsOptions } from 'cors'
+import { type AppInstance } from '../../lib/instance.js'
 
-export const autoConfig: FastifyCorsOptions = {
+export const autoConfig: CorsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }
 
 /**
  * This plugins enables the use of CORS.
  *
- * @see {@link https://github.com/fastify/fastify-cors}
+ * @see {@link https://github.com/expressjs/cors}
  */
-export default cors
+export default function corsPlugin (app: AppInstance): void {
+  app.use(cors({
+    ...autoConfig,
+    // `cors` joins the array without spaces; the demo advertises the
+    // methods separated by ", ".
+    methods: (autoConfig.methods as string[]).join(', ')
+  }))
+}

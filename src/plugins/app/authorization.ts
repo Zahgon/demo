@@ -1,41 +1,41 @@
-import fp from 'fastify-plugin'
-import { FastifyReply, FastifyRequest } from 'fastify'
+import { Request, Response } from 'express'
+import { AppInstance } from '../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyRequest {
-    verifyAccess: typeof verifyAccess;
-    isModerator: typeof isModerator;
-    isAdmin: typeof isAdmin;
+declare global {
+  namespace Express {
+    export interface Request {
+      verifyAccess: (reply: import('express').Response, role: string) => void;
+      isModerator: (reply: import('express').Response) => Promise<void>;
+      isAdmin: (reply: import('express').Response) => Promise<void>;
+    }
   }
 }
 
-function verifyAccess (this: FastifyRequest, reply: FastifyReply, role: string) {
+function verifyAccess (this: Request, reply: Response, role: string) {
   if (!this.session.user.roles.includes(role)) {
-    reply.status(403).send('You are not authorized to access this resource.')
+    reply.status(403).set('content-type', 'text/plain; charset=utf-8').send('You are not authorized to access this resource.')
   }
 }
 
-async function isModerator (this: FastifyRequest, reply: FastifyReply) {
+async function isModerator (this: Request, reply: Response) {
   this.verifyAccess(reply, 'moderator')
 }
 
-async function isAdmin (this: FastifyRequest, reply: FastifyReply) {
+async function isAdmin (this: Request, reply: Response) {
   this.verifyAccess(reply, 'admin')
 }
 
 /**
- * The use of fastify-plugin is required to be able
- * to export the decorators to the outer scope
+ * The decorators are attached on every request so they are
+ * available to the outer scope, as the route handlers do
  *
- * @see {@link https://github.com/fastify/fastify-plugin}
+ * @see {@link https://expressjs.com/en/guide/using-middleware.html}
  */
-export default fp(
-  async function (fastify) {
-    fastify.decorateRequest('verifyAccess', verifyAccess)
-    fastify.decorateRequest('isModerator', isModerator)
-    fastify.decorateRequest('isAdmin', isAdmin)
-  },
-  // You should name your plugins if you want to avoid name collisions
-  // and/or to perform dependency checks.
-  { name: 'authorization' }
-)
+export default async function (app: AppInstance) {
+  app.use((request, _reply, next) => {
+    request.verifyAccess = verifyAccess
+    request.isModerator = isModerator
+    request.isAdmin = isAdmin
+    next()
+  })
+}

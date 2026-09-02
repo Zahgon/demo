@@ -1,31 +1,37 @@
-import fp from 'fastify-plugin'
-import { FastifyInstance } from 'fastify'
-import knex, { Knex } from 'knex'
+import knex, { type Knex } from 'knex'
+import { type AppInstance } from '../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    knex: Knex;
+declare global {
+  namespace Express {
+    interface Application {
+      knex: Knex
+    }
   }
 }
 
-export const autoConfig = (fastify: FastifyInstance) => {
+export const autoConfig = (app: AppInstance): Knex.Config => {
   return {
     client: 'mysql2',
     connection: {
-      host: fastify.config.MYSQL_HOST,
-      user: fastify.config.MYSQL_USER,
-      password: fastify.config.MYSQL_PASSWORD,
-      database: fastify.config.MYSQL_DATABASE,
-      port: Number(fastify.config.MYSQL_PORT)
+      host: app.config.MYSQL_HOST,
+      user: app.config.MYSQL_USER,
+      password: app.config.MYSQL_PASSWORD,
+      database: app.config.MYSQL_DATABASE,
+      port: Number(app.config.MYSQL_PORT)
     },
     pool: { min: 2, max: 10 }
   }
 }
 
-export default fp(async (fastify: FastifyInstance, opts) => {
-  fastify.decorate('knex', knex(opts))
+/**
+ * SQL query builder
+ *
+ * @see {@link https://knexjs.org/}
+ */
+export default function knexPlugin (app: AppInstance): void {
+  app.knex = knex(autoConfig(app))
 
-  fastify.addHook('onClose', async (instance) => {
-    await instance.knex.destroy()
+  app.addCloseHook(async () => {
+    await app.knex.destroy()
   })
-}, { name: 'knex' })
+}

@@ -1,7 +1,4 @@
-import {
-  FastifyPluginAsyncTypebox,
-  Type
-} from '@fastify/type-provider-typebox'
+import { Type } from 'typebox'
 import {
   TaskSchema,
   CreateTaskSchema,
@@ -13,41 +10,52 @@ import {
 import path from 'node:path'
 import { stringify } from 'csv-stringify'
 import { createGzip } from 'node:zlib'
+import { pipeline } from 'node:stream/promises'
+import type { AppInstance } from '../../../lib/instance.js'
+import { route, type AppRouter } from '../../../lib/route.js'
+import type { TaskQuery, UpdateTask } from '../../../plugins/app/tasks/tasks-repository.js'
 
-const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
-  const { tasksRepository, tasksFileManager } = fastify
-  fastify.get(
-    '/',
-    {
-      schema: {
-        querystring: QueryTaskPaginationSchema,
-        response: {
-          200: TaskPaginationResultSchema
-        },
-        tags: ['Tasks']
-      }
+interface IdParams {
+  id: number
+}
+
+interface FilenameParams {
+  filename: string
+}
+
+export default async function (app: AppInstance, target: AppRouter) {
+  const { tasksRepository, tasksFileManager } = app
+
+  route(target, {
+    method: 'get',
+    url: '/',
+    schema: {
+      querystring: QueryTaskPaginationSchema,
+      response: {
+        200: TaskPaginationResultSchema
+      },
+      tags: ['Tasks']
     },
-    async function (request) {
-      return tasksRepository.paginate(request.query)
+    handler: async function (request) {
+      return tasksRepository.paginate(request.query as unknown as TaskQuery)
     }
-  )
+  })
 
-  fastify.get(
-    '/:id',
-    {
-      schema: {
-        params: Type.Object({
-          id: Type.Number()
-        }),
-        response: {
-          200: TaskSchema,
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'get',
+    url: '/:id',
+    schema: {
+      params: Type.Object({
+        id: Type.Number()
+      }),
+      response: {
+        200: TaskSchema,
+        404: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { id } = request.params
+    handler: async function (request, reply) {
+      const { id } = request.params as unknown as IdParams
       const task = await tasksRepository.findById(id)
 
       if (!task) {
@@ -56,22 +64,21 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
 
       return task
     }
-  )
+  })
 
-  fastify.post(
-    '/',
-    {
-      schema: {
-        body: CreateTaskSchema,
-        response: {
-          201: {
-            id: Type.Number()
-          }
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'post',
+    url: '/',
+    schema: {
+      body: CreateTaskSchema,
+      response: {
+        201: {
+          id: Type.Number()
+        }
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
+    handler: async function (request, reply) {
       const newTask = {
         ...request.body,
         author_id: request.session.user.id,
@@ -80,30 +87,29 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
 
       const id = await tasksRepository.create(newTask)
 
-      reply.code(201)
+      reply.status(201)
 
       return { id }
     }
-  )
+  })
 
-  fastify.patch(
-    '/:id',
-    {
-      schema: {
-        params: Type.Object({
-          id: Type.Number()
-        }),
-        body: UpdateTaskSchema,
-        response: {
-          200: TaskSchema,
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'patch',
+    url: '/:id',
+    schema: {
+      params: Type.Object({
+        id: Type.Number()
+      }),
+      body: UpdateTaskSchema,
+      response: {
+        200: TaskSchema,
+        404: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { id } = request.params
-      const updatedTask = await tasksRepository.update(id, request.body)
+    handler: async function (request, reply) {
+      const { id } = request.params as unknown as IdParams
+      const updatedTask = await tasksRepository.update(id, request.body as UpdateTask)
 
       if (!updatedTask) {
         return reply.notFound('Task not found')
@@ -111,88 +117,90 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
 
       return updatedTask
     }
-  )
+  })
 
-  fastify.delete(
-    '/:id',
-    {
-      schema: {
-        params: Type.Object({
-          id: Type.Number()
-        }),
-        response: {
-          204: Type.Null(),
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
+  route(target, {
+    method: 'delete',
+    url: '/:id',
+    schema: {
+      params: Type.Object({
+        id: Type.Number()
+      }),
+      response: {
+        204: Type.Null(),
+        404: Type.Object({ message: Type.String() })
       },
-      preHandler: (request, reply) => request.isAdmin(reply)
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const deleted = await tasksRepository.delete(request.params.id)
+    preHandler: (request, reply, next) => {
+      request.isAdmin(reply).then(() => next(), next)
+    },
+    handler: async function (request, reply) {
+      const { id } = request.params as unknown as IdParams
+      const deleted = await tasksRepository.delete(id)
       if (!deleted) {
         return reply.notFound('Task not found')
       }
 
-      return reply.code(204).send(null)
+      return reply.status(204).send(null)
     }
-  )
+  })
 
-  fastify.post(
-    '/:id/assign',
-    {
-      schema: {
-        params: Type.Object({
-          id: Type.Number()
-        }),
-        body: Type.Object({
-          userId: Type.Optional(Type.Number())
-        }),
-        response: {
-          200: TaskSchema,
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
+  route(target, {
+    method: 'post',
+    url: '/:id/assign',
+    schema: {
+      params: Type.Object({
+        id: Type.Number()
+      }),
+      body: Type.Object({
+        userId: Type.Optional(Type.Number())
+      }),
+      response: {
+        200: TaskSchema,
+        404: Type.Object({ message: Type.String() })
       },
-      preHandler: (request, reply) => request.isModerator(reply)
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { id } = request.params
+    preHandler: (request, reply, next) => {
+      request.isModerator(reply).then(() => next(), next)
+    },
+    handler: async function (request, reply) {
+      const { id } = request.params as unknown as IdParams
 
       const task = await tasksRepository.findById(id)
       if (!task) {
         return reply.notFound('Task not found')
       }
 
-      const { userId } = request.body
+      const { userId } = request.body as { userId?: number }
       await tasksRepository.update(id, { assigned_user_id: userId ?? null })
 
       task.assigned_user_id = userId
 
       return task
     }
-  )
+  })
 
-  fastify.post(
-    '/:id/upload',
-    {
-      schema: {
-        params: Type.Object({
-          id: Type.Number()
+  route(target, {
+    method: 'post',
+    url: '/:id/upload',
+    schema: {
+      params: Type.Object({
+        id: Type.Number()
+      }),
+      consumes: ['multipart/form-data'],
+      response: {
+        200: Type.Object({
+          message: Type.String()
         }),
-        consumes: ['multipart/form-data'],
-        response: {
-          200: Type.Object({
-            message: Type.String()
-          }),
-          404: Type.Object({ message: Type.String() }),
-          400: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+        404: Type.Object({ message: Type.String() }),
+        400: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { id } = request.params
+    handler: async function (request, reply) {
+      const { id } = request.params as unknown as IdParams
 
       const file = await request.file()
       if (!file) {
@@ -219,7 +227,7 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
         oldTempFilename = await tasksFileManager.moveOldToTemp(oldFilename)
       }
 
-      return fastify.knex
+      return app.knex
         .transaction(async (trx) => {
           const newFilename = `${id}_${file.filename}`
           await tasksRepository.update(id, { filename: newFilename }, trx)
@@ -236,58 +244,61 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
           throw err
         })
     }
-  )
+  })
 
-  fastify.get(
-    '/:filename/image',
-    {
-      schema: {
-        params: Type.Object({
-          filename: Type.String()
-        }),
-        response: {
-          200: { type: 'string', contentMediaType: 'image/*' },
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'get',
+    url: '/:filename/image',
+    schema: {
+      params: Type.Object({
+        filename: Type.String()
+      }),
+      response: {
+        200: { type: 'string', contentMediaType: 'image/*' },
+        404: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { filename } = request.params
+    handler: async function (request, reply) {
+      const { filename } = request.params as unknown as FilenameParams
 
       const task = await tasksRepository.findByFilename(filename)
       if (!task) {
         return reply.notFound(`No task has filename "${filename}"`)
       }
 
-      return reply.sendFile(
-        task.filename as string,
-        path.join(
-          fastify.config.UPLOAD_DIRNAME,
-          fastify.config.UPLOAD_TASKS_DIRNAME
-        )
+      const root = path.resolve(
+        app.config.UPLOAD_DIRNAME,
+        app.config.UPLOAD_TASKS_DIRNAME
       )
+
+      await new Promise<void>((resolve, reject) => {
+        reply.sendFile(task.filename as string, { root }, (err) => {
+          /* c8 ignore next */
+          if (err) { reject(err); return }
+          resolve()
+        })
+      })
     }
-  )
+  })
 
-  fastify.delete(
-    '/:filename/image',
-    {
-      schema: {
-        params: Type.Object({
-          filename: Type.String()
-        }),
-        response: {
-          204: Type.Null(),
-          404: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'delete',
+    url: '/:filename/image',
+    schema: {
+      params: Type.Object({
+        filename: Type.String()
+      }),
+      response: {
+        204: Type.Null(),
+        404: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
-      const { filename } = request.params
+    handler: async function (request, reply) {
+      const { filename } = request.params as unknown as FilenameParams
 
-      return fastify.knex
+      return app.knex
         .transaction(async (trx) => {
           const hasBeenUpdated = await tasksRepository.deleteFilename(filename, null, trx)
 
@@ -297,25 +308,24 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
 
           await tasksFileManager.delete(filename)
 
-          reply.code(204)
+          reply.status(204)
 
           return { message: 'File deleted successfully' }
         })
     }
-  )
+  })
 
-  fastify.get(
-    '/download/csv',
-    {
-      schema: {
-        response: {
-          200: Type.Unknown({ type: 'string', contentMediaType: 'application/gzip' }),
-          400: Type.Object({ message: Type.String() })
-        },
-        tags: ['Tasks']
-      }
+  route(target, {
+    method: 'get',
+    url: '/download/csv',
+    schema: {
+      response: {
+        200: Type.Unknown({ type: 'string', contentMediaType: 'application/gzip' }),
+        400: Type.Object({ message: Type.String() })
+      },
+      tags: ['Tasks']
     },
-    async function (request, reply) {
+    handler: async function (request, reply) {
       const queryStream = tasksRepository.createStream()
 
       const csvTransform = stringify({
@@ -329,9 +339,7 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
       `attachment; filename="${encodeURIComponent('tasks.csv.gz')}"`
       )
 
-      return queryStream.pipe(csvTransform).pipe(createGzip())
+      await pipeline(queryStream, csvTransform, createGzip(), reply)
     }
-  )
+  })
 }
-
-export default plugin

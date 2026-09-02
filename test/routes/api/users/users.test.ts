@@ -1,19 +1,19 @@
 import { it, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert'
 import { build } from '../../../helper.js'
-import { FastifyInstance } from 'fastify'
+import { AppInstance } from '../../../../src/lib/instance.js'
 import { scryptHash } from '../../../../src/plugins/app/password-manager.js'
 
-async function createUser (app: FastifyInstance, userData: Partial<{ username: string; email: string; password: string }>) {
+async function createUser (app: AppInstance, userData: Partial<{ username: string; email: string; password: string }>) {
   const [id] = await app.knex('users').insert(userData)
   return id
 }
 
-async function deleteUser (app: FastifyInstance, username: string) {
+async function deleteUser (app: AppInstance, username: string) {
   await app.knex('users').delete().where({ username })
 }
 
-async function updatePasswordWithLoginInjection (app: FastifyInstance, username: string, payload: { currentPassword: string; newPassword: string }) {
+async function updatePasswordWithLoginInjection (app: AppInstance, username: string, payload: { currentPassword: string; newPassword: string }) {
   return app.injectWithLogin(`${username}@example.com`, {
     method: 'PUT',
     url: '/api/users/update-password',
@@ -23,7 +23,7 @@ async function updatePasswordWithLoginInjection (app: FastifyInstance, username:
 
 describe('Users API', async () => {
   const hash = await scryptHash('Password123$')
-  let app: FastifyInstance
+  let app: AppInstance
 
   beforeEach(async () => {
     app = await build()

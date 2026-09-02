@@ -1,16 +1,15 @@
 import { test } from 'node:test'
-import Fastify from 'fastify'
+import { pino } from 'pino'
 import scryptPlugin from '../../src/plugins/app/password-manager.js'
+import { createInstance } from '../../src/lib/instance.js'
 import assert from 'node:assert'
 
 test('scrypt works standalone', async t => {
-  const app = Fastify()
+  const app = createInstance(pino({ level: process.env.LOG_LEVEL ?? 'silent' }))
 
   t.after(() => app.close())
 
-  app.register(scryptPlugin)
-
-  await app.ready()
+  await scryptPlugin(app)
 
   const password = 'test_password'
   const { passwordManager } = app

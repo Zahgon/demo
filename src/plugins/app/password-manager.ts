@@ -1,9 +1,11 @@
-import fp from 'fastify-plugin'
 import { scrypt, timingSafeEqual, randomBytes } from 'node:crypto'
+import { AppInstance } from '../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    passwordManager: typeof passwordManager
+declare global {
+  namespace Express {
+    export interface Application {
+      passwordManager: typeof passwordManager
+    }
   }
 }
 
@@ -61,8 +63,6 @@ async function compare (value: string, hash: string): Promise<boolean> {
   })
 }
 
-export default fp(async (fastify) => {
-  fastify.decorate('passwordManager', passwordManager)
-}, {
-  name: 'password-manager'
-})
+export default async function (app: AppInstance) {
+  app.passwordManager = passwordManager
+}

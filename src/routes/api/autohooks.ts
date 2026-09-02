@@ -1,13 +1,18 @@
-import { FastifyInstance } from 'fastify'
+import { NextFunction, Request, Response } from 'express'
+import { AppInstance } from '../../lib/instance.js'
+import { AppRouter } from '../../lib/route.js'
 
-export default async function (fastify: FastifyInstance) {
-  fastify.addHook('onRequest', async (request, reply) => {
-    if (request.url.startsWith('/api/auth/login')) {
+export default async function (_app: AppInstance, target: AppRouter) {
+  target.router.use((request: Request, reply: Response, next: NextFunction) => {
+    if (request.originalUrl.startsWith('/api/auth/login')) {
+      next()
       return
     }
 
     if (!request.session.user) {
       reply.unauthorized('You must be authenticated to access this route.')
     }
+
+    next()
   })
 }

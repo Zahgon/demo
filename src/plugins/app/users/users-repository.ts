@@ -1,16 +1,17 @@
-import { FastifyInstance } from 'fastify'
 import { Knex } from 'knex'
-import fp from 'fastify-plugin'
 import { Auth } from '../../../schemas/auth.js'
+import { AppInstance } from '../../../lib/instance.js'
 
-declare module 'fastify' {
-  interface FastifyInstance {
-    usersRepository: ReturnType<typeof createUsersRepository>;
+declare global {
+  namespace Express {
+    interface Application {
+      usersRepository: ReturnType<typeof createUsersRepository>;
+    }
   }
 }
 
-export function createUsersRepository (fastify: FastifyInstance) {
-  const knex = fastify.knex
+export function createUsersRepository (app: AppInstance) {
+  const knex = app.knex
 
   return {
     async findByEmail (email: string, trx?: Knex) {
@@ -40,13 +41,7 @@ export function createUsersRepository (fastify: FastifyInstance) {
   }
 }
 
-export default fp(
-  async function (fastify: FastifyInstance) {
-    const repo = createUsersRepository(fastify)
-    fastify.decorate('usersRepository', repo)
-  },
-  {
-    name: 'users-repository',
-    dependencies: ['knex']
-  }
-)
+export default async function (app: AppInstance) {
+  const repo = createUsersRepository(app)
+  app.usersRepository = repo
+}

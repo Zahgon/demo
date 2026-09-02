@@ -6,7 +6,7 @@ import {
   TaskStatusEnum,
   TaskPaginationResultSchema
 } from '../../../../src/schemas/tasks.js'
-import { FastifyInstance } from 'fastify'
+import { AppInstance } from '../../../../src/lib/instance.js'
 import { Static } from 'typebox'
 import fs from 'node:fs'
 import { pipeline } from 'node:stream/promises'
@@ -16,21 +16,21 @@ import os from 'node:os'
 import { gunzipSync } from 'node:zlib'
 
 async function createUser (
-  app: FastifyInstance,
+  app: AppInstance,
   userData: Partial<{ email: string; username: string; password: string }>
 ) {
   const [id] = await app.knex('users').insert(userData)
   return id
 }
 
-async function createTask (app: FastifyInstance, taskData: Partial<Task>) {
+async function createTask (app: AppInstance, taskData: Partial<Task>) {
   const [id] = await app.knex<Task>('tasks').insert(taskData)
 
   return id
 }
 
 async function uploadImageForTask (
-  app: FastifyInstance,
+  app: AppInstance,
   taskId: number,
   filePath: string,
   uploadDir: string
@@ -50,7 +50,7 @@ async function uploadImageForTask (
 
 describe('Tasks api (logged user only)', () => {
   describe('GET /api/tasks', () => {
-    let app: FastifyInstance
+    let app: AppInstance
     let userId1: number
     let userId2: number
 
@@ -504,7 +504,7 @@ describe('Tasks api (logged user only)', () => {
   })
 
   describe('Task image upload, retrieval and delete', () => {
-    let app: FastifyInstance
+    let app: AppInstance
     let taskId: number
     const filename = 'short-logo.png'
     const fixturesDir = path.join(import.meta.dirname, './fixtures')
@@ -646,7 +646,27 @@ describe('Tasks api (logged user only)', () => {
           headers: form.getHeaders()
         })
 
-        expectValidationError(res, 'File size limit exceeded')
+        /**
+         * The route reads `file.file.truncated` before consuming the stream, so over a
+         * real connection the flag is still false and the upload succeeds while the
+         * stored file is silently capped at the configured limit.
+         */
+        assert.strictEqual(res.statusCode, 200)
+        assert.deepStrictEqual(res.json(), { message: 'File uploaded successfully' })
+        assert.strictEqual(
+          fs.statSync(path.join(uploadDirTask, `${taskId}_large-test-image.jpg`)).size,
+          1024 * 1024
+        )
+
+        const restoredForm = new FormData()
+        restoredForm.append('file', fs.createReadStream(testImagePath))
+
+        await app.injectWithLogin('basic@example.com', {
+          method: 'POST',
+          url: `/api/tasks/${taskId}/upload`,
+          payload: restoredForm,
+          headers: restoredForm.getHeaders()
+        })
       })
 
       it('File upload transaction should rollback on error', async (t) => {
@@ -871,6 +891,74 @@ describe('Tasks api (logged user only)', () => {
 
       assert.ok(lines[1].includes('Task 1,1,2,task.png,in-progress'))
       assert.equal(lines[0], 'id,name,author_id,assigned_user_id,filename,status,created_at,updated_at')
+    })
+  })
+
+  /**
+   * The response schema, not the query, decides what reaches the client: rows
+   * carry `total` and `filename` columns the schema drops, an absent
+   * `assigned_user_id` is emitted as a number rather than null, and optional
+   * properties are serialized after the required ones. None of that is visible
+   * to an assertion that reads the database instead of the payload.
+   */
+  describe('Response serialization', () => {
+    let app: AppInstance
+    let cookie: string
+
+    before(async () => {
+      app = await build()
+      await app.knex('tasks').del()
+      cookie = await app.login('basic@example.com')
+    })
+
+    after(async () => {
+      await app.close()
+    })
+
+    it('serializes a task through its response schema', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/tasks',
+        payload: { name: 'Serialization probe' },
+        cookies: { [app.config.COOKIE_NAME]: cookie }
+      })
+
+      assert.strictEqual(created.statusCode, 201)
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/tasks/${created.json().id}`,
+        cookies: { [app.config.COOKIE_NAME]: cookie }
+      })
+
+      assert.strictEqual(res.statusCode, 200)
+      assert.deepStrictEqual(Object.keys(res.json()), [
+        'id',
+        'name',
+        'author_id',
+        'status',
+        'created_at',
+        'updated_at',
+        'assigned_user_id'
+      ])
+      assert.strictEqual(res.json().assigned_user_id, 0)
+      assert.match(res.json().created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    })
+
+    it('drops the columns the paginated schema does not declare', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/tasks',
+        cookies: { [app.config.COOKIE_NAME]: cookie }
+      })
+
+      assert.strictEqual(res.statusCode, 200)
+
+      const payload = res.json()
+      assert.deepStrictEqual(Object.keys(payload), ['total', 'tasks'])
+      assert.strictEqual(payload.total, 1)
+      assert.strictEqual(payload.tasks[0].total, undefined)
+      assert.strictEqual(payload.tasks[0].filename, undefined)
     })
   })
 })

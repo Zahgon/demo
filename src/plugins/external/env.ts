@@ -1,25 +1,31 @@
-import env from '@fastify/env'
+import dotenv from 'dotenv'
+import { type AppInstance } from '../../lib/instance.js'
+import { createValidator, formatErrors } from '../../lib/validation.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    config: {
-      PORT: number;
-      MYSQL_HOST: string;
-      MYSQL_PORT: string;
-      MYSQL_USER: string;
-      MYSQL_PASSWORD: string;
-      MYSQL_DATABASE: string;
-      COOKIE_SECRET: string;
-      COOKIE_NAME: string;
-      COOKIE_SECURED: boolean;
-      RATE_LIMIT_MAX: number;
-      UPLOAD_DIRNAME: string;
-      UPLOAD_TASKS_DIRNAME: string;
-    };
+declare global {
+  namespace Express {
+    interface Application {
+      config: Env;
+    }
   }
 }
 
-const schema = {
+export interface Env {
+  PORT: number;
+  MYSQL_HOST: string;
+  MYSQL_PORT: string;
+  MYSQL_USER: string;
+  MYSQL_PASSWORD: string;
+  MYSQL_DATABASE: string;
+  COOKIE_SECRET: string;
+  COOKIE_NAME: string;
+  COOKIE_SECURED: boolean;
+  RATE_LIMIT_MAX: number;
+  UPLOAD_DIRNAME: string;
+  UPLOAD_TASKS_DIRNAME: string;
+}
+
+export const schema = {
   type: 'object',
   required: [
     'MYSQL_HOST',
@@ -32,6 +38,12 @@ const schema = {
     'COOKIE_SECURED'
   ],
   properties: {
+    // Server
+    PORT: {
+      type: 'number',
+      default: 3000
+    },
+
     // Database
     MYSQL_HOST: {
       type: 'string',
@@ -82,29 +94,31 @@ const schema = {
 }
 
 export const autoConfig = {
-  // Decorate Fastify instance with `config` key
-  // Optional, default: 'config'
   confKey: 'config',
-
-  // Schema to validate
   schema,
-
-  // Needed to read .env in root folder
   dotenv: true,
-  // or, pass config options available on dotenv module
-  // dotenv: {
-  //   path: `${import.meta.dirname}/.env`,
-  //   debug: true
-  // }
-
-  // Source for the configuration data
-  // Optional, default: process.env
   data: process.env
 }
 
-/**
- * This plugins helps to check environment variables.
- *
- * @see {@link https://github.com/fastify/fastify-env}
- */
-export default env
+export function loadEnv (source: NodeJS.ProcessEnv = process.env, envSchema: object = schema): Env {
+  const ajv = createValidator()
+  const validate = ajv.compile(envSchema)
+  const data: Record<string, unknown> = { ...source }
+
+  if (!validate(data)) {
+    throw new Error(formatErrors('env', validate.errors))
+  }
+
+  const config = {} as Record<string, unknown>
+  for (const key of Object.keys((envSchema as { properties: object }).properties)) {
+    config[key] = data[key]
+  }
+
+  return config as unknown as Env
+}
+
+export default function env (app: AppInstance): void {
+  dotenv.config({ quiet: true })
+
+  app.config = loadEnv()
+}

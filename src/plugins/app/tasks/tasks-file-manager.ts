@@ -1,23 +1,24 @@
 import { ReturnType } from 'typebox'
-import { FastifyInstance } from 'fastify'
-import fp from 'fastify-plugin'
 import path from 'path'
-import fastifyMultipart from '../../external/multipart.js'
+import { MultipartFile } from '../../external/multipart.js'
+import { AppInstance } from '../../../lib/instance.js'
 
-declare module 'fastify' {
-  export interface FastifyInstance {
-    tasksFileManager: ReturnType<typeof createUploader>
+declare global {
+  namespace Express {
+    export interface Application {
+      tasksFileManager: ReturnType<typeof createUploader>
+    }
   }
 }
 
-function createUploader (fastify: FastifyInstance) {
-  const { fileManager } = fastify
+function createUploader (app: AppInstance) {
+  const { fileManager } = app
 
   const uploadPath = path.join(
     import.meta.dirname,
     '../../../..',
-    fastify.config.UPLOAD_DIRNAME,
-    fastify.config.UPLOAD_TASKS_DIRNAME
+    app.config.UPLOAD_DIRNAME,
+    app.config.UPLOAD_TASKS_DIRNAME
   )
 
   const tempPath = path.join(uploadPath, 'temp')
@@ -29,7 +30,7 @@ function createUploader (fastify: FastifyInstance) {
   const buildTempFilePath = (filename: string) => fileManager.safeJoin(tempPath, filename)
 
   return {
-    async upload (filename: string, file: fastifyMultipart.MultipartFile) {
+    async upload (filename: string, file: MultipartFile) {
       const filePath = buildFilePath(filename)
       await fileManager.upload(file, filePath)
     },
@@ -60,9 +61,6 @@ function createUploader (fastify: FastifyInstance) {
   }
 }
 
-export default fp(async (fastify) => {
-  fastify.decorate('tasksFileManager', createUploader(fastify))
-}, {
-  name: 'tasks-file-manager',
-  dependencies: ['file-manager']
-})
+export default async function (app: AppInstance) {
+  app.tasksFileManager = createUploader(app)
+}
